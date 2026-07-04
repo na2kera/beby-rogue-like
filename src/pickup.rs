@@ -1,0 +1,135 @@
+use bevy::prelude::*;
+use rand::RngExt;
+
+use crate::Health;
+use crate::enemy::EnemyDied;
+use crate::GameState;
+use crate::player::{PLAYER_SIZE, Player};
+use crate::wave::WavePhase;
+use crate::weapon::{MAX_LEVEL, MAX_WEAPONS, Weapon, WeaponType};
+
+const PICKUP_SIZE: f32 = 24.0;
+
+/// 敵1体あたりの武器ドロップ率と回復アイテムドロップ率
+const WEAPON_DROP_RATE: f32 = 0.10;
+const HEAL_DROP_RATE: f32 = 0.06;
+
+const HEAL_AMOUNT: f32 = 20.0;
+
+/// フィールドに落ちている拾得アイテム
+#[derive(Component)]
+struct Pickup(PickupKind);
+
+#[derive(Clone, Copy)]
+enum PickupKind {
+    Weapon(WeaponType),
+    Heal,
+}
+
+pub struct PickupPlugin;
+
+impl Plugin for PickupPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(
+            Update,
+            (spawn_drops, collect_pickups)
+                .chain()
+                .run_if(in_state(WavePhase::Fighting)),
+        )
+        .add_systems(OnExit(GameState::Playing), despawn_all_pickups);
+    }
+}
+
+/// 敵の死亡メッセージを受け取り、確率でアイテムを落とす
+fn spawn_drops(
+    mut commands: Commands,
+    mut died: MessageReader<EnemyDied>,
+    weapons: Query<&Weapon>,
+) {
+    // ドロップ候補 = まだ強化余地のある所持武器 ＋（枠が空いていれば）未所持武器。
+    // 枠が満杯なら新武器は候補から外れる＝「新武器は出なくなる」仕様
+    let owned_count = weapons.iter().count();
+    let mut candidates = Vec::new();
+    for weapon_type in WeaponType::ALL {
+        match weapons.iter().find(|w| w.weapon_type == weapon_type) {
+            Some(w) if w.level < MAX_LEVEL => candidates.push(weapon_type),
+            None if owned_count < MAX_WEAPONS => candidates.push(weapon_type),
+            _ => {}
+        }
+    }
+
+    let mut rng = rand::rng();
+    for event in died.read() {
+        let roll: f32 = rng.random();
+        let kind = if roll < WEAPON_DROP_RATE && !candidates.is_empty() {
+            PickupKind::Weapon(candidates[rng.random_range(0..candidates.len())])
+        } else if roll < WEAPON_DROP_RATE + HEAL_DROP_RATE {
+            PickupKind::Heal
+        } else {
+            continue;
+        };
+
+        let color = match kind {
+            PickupKind::Weapon(_) => Color::srgb(0.95, 0.85, 0.2), // 黄
+            PickupKind::Heal => Color::srgb(0.3, 0.9, 0.4),        // 緑
+        };
+
+        commands.spawn((
+            Pickup(kind),
+            Sprite::from_color(color, Vec2::splat(PICKUP_SIZE)),
+            Transform::from_xyz(event.position.x, event.position.y, 0.3),
+        ));
+    }
+}
+
+/// ラン終了時に残っているアイテムをすべて消す
+fn despawn_all_pickups(mut commands: Commands, pickups: Query<Entity, With<Pickup>>) {
+    for entity in &pickups {
+        commands.entity(entity).despawn();
+    }
+}
+
+/// プレイヤーがアイテムに触れたら効果を適用して消す
+fn collect_pickups(
+    mut commands: Commands,
+    mut player: Single<(&Transform, &mut Health), With<Player>>,
+    pickups: Query<(Entity, &Transform, &Pickup)>,
+    mut weapons: Query<&mut Weapon>,
+) {
+    let (player_transform, health) = &mut *player;
+    let player_position = player_transform.translation.truncate();
+    let pickup_distance = (PLAYER_SIZE + PICKUP_SIZE) / 2.0;
+
+    // 同一フレームで同じ新武器を2回スポーンしないためのガード
+    let mut newly_added: Vec<WeaponType> = Vec::new();
+
+    for (entity, transform, pickup) in &pickups {
+        if player_position.distance(transform.translation.truncate()) >= pickup_distance {
+            continue;
+        }
+
+        match pickup.0 {
+            PickupKind::Heal => {
+                health.current = (health.current + HEAL_AMOUNT).min(health.max);
+            }
+            PickupKind::Weapon(weapon_type) => {
+                if let Some(mut weapon) =
+                    weapons.iter_mut().find(|w| w.weapon_type == weapon_type)
+                {
+                    // 所持済みならレベルアップ（強化）
+                    if weapon.level < MAX_LEVEL {
+                        weapon.level += 1;
+                    }
+                } else if weapons.iter().count() + newly_added.len() < MAX_WEAPONS
+                    && !newly_added.contains(&weapon_type)
+                {
+                    // 未所持で枠が空いていれば新しい武器として追加
+                    commands.spawn(Weapon::new(weapon_type));
+                    newly_added.push(weapon_type);
+                }
+            }
+        }
+
+        commands.entity(entity).despawn();
+    }
+}

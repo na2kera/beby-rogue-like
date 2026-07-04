@@ -2,24 +2,77 @@ use bevy::prelude::*;
 use rand::RngExt;
 
 use crate::player::{PLAYER_SIZE, Player};
-use crate::{ARENA_HEIGHT, ARENA_WIDTH, Health};
-
-pub const ENEMY_SIZE: f32 = 28.0;
-const ENEMY_SPEED: f32 = 150.0;
-const ENEMY_MAX_HP: f32 = 30.0;
-
-/// 接触1回あたりのダメージ
-const CONTACT_DAMAGE: f32 = 10.0;
-
-/// 敵の出現間隔（秒）
-const SPAWN_INTERVAL_SECS: f32 = 1.0;
+use crate::wave::{WaveInfo, WavePhase};
+use crate::{ARENA_HEIGHT, ARENA_WIDTH, GameState, Health};
 
 /// 壁からどれだけ内側に出現するか
 const SPAWN_MARGIN: f32 = 50.0;
 
-/// 敵であることを示すマーカーコンポーネント
+/// 敵の種類
+#[derive(Clone, Copy)]
+pub enum EnemyKind {
+    /// 標準（バランス型）
+    Normal,
+    /// 高速・低HP
+    Fast,
+    /// 低速・高HP
+    Tank,
+}
+
+/// 敵1種類分の性能
+pub struct EnemyStats {
+    pub size: f32,
+    pub speed: f32,
+    pub max_hp: f32,
+    pub contact_damage: f32,
+    pub color: Color,
+}
+
+impl EnemyKind {
+    pub fn stats(self) -> EnemyStats {
+        match self {
+            EnemyKind::Normal => EnemyStats {
+                size: 28.0,
+                speed: 150.0,
+                max_hp: 30.0,
+                contact_damage: 10.0,
+                color: Color::srgb(0.9, 0.25, 0.25), // 赤
+            },
+            EnemyKind::Fast => EnemyStats {
+                size: 22.0,
+                speed: 240.0,
+                max_hp: 15.0,
+                contact_damage: 8.0,
+                color: Color::srgb(0.95, 0.6, 0.2), // 橙
+            },
+            EnemyKind::Tank => EnemyStats {
+                size: 42.0,
+                speed: 90.0,
+                max_hp: 90.0,
+                contact_damage: 20.0,
+                color: Color::srgb(0.55, 0.15, 0.4), // 紫
+            },
+        }
+    }
+}
+
+/// 敵エンティティに付くコンポーネント。当たり判定や移動に使う性能を持つ
 #[derive(Component)]
-pub struct Enemy;
+pub struct Enemy {
+    pub size: f32,
+    pub speed: f32,
+    pub contact_damage: f32,
+}
+
+/// 最終ボスのマーカー（Enemy と併用する）
+#[derive(Component)]
+pub struct Boss;
+
+/// 敵が倒されたことを他のシステムに知らせるメッセージ（ドロップ処理が購読する）
+#[derive(Message)]
+pub struct EnemyDied {
+    pub position: Vec2,
+}
 
 /// 敵の出現タイミングを管理するリソース（ワールドに1つだけのグローバルデータ）
 #[derive(Resource)]
@@ -29,16 +82,56 @@ pub struct EnemyPlugin;
 
 impl Plugin for EnemyPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(EnemySpawnTimer(Timer::from_seconds(
-            SPAWN_INTERVAL_SECS,
-            TimerMode::Repeating,
-        )))
-        .add_systems(Update, (spawn_enemies, chase_player, hit_player).chain());
+        app.add_message::<EnemyDied>()
+            .insert_resource(EnemySpawnTimer(Timer::from_seconds(
+                1.0,
+                TimerMode::Repeating,
+            )))
+            .add_systems(
+                Update,
+                (spawn_enemies, chase_player, hit_player, despawn_dead_enemies)
+                    .chain()
+                    .run_if(in_state(WavePhase::Fighting)),
+            )
+            .add_systems(OnExit(GameState::Playing), despawn_all_enemies);
     }
 }
 
-/// 一定間隔でアリーナの外周付近にランダムに敵を出現させる
-fn spawn_enemies(mut commands: Commands, time: Res<Time>, mut timer: ResMut<EnemySpawnTimer>) {
+/// ウェーブ番号に応じて敵の種類を抽選する。
+/// Wave 3 から高速型、Wave 5 からタンク型が混ざり始める
+fn pick_enemy_kind(wave_number: u32, roll: f32) -> EnemyKind {
+    match wave_number {
+        1..=2 => EnemyKind::Normal,
+        3..=4 => {
+            if roll < 0.25 {
+                EnemyKind::Fast
+            } else {
+                EnemyKind::Normal
+            }
+        }
+        _ => {
+            if roll < 0.20 {
+                EnemyKind::Tank
+            } else if roll < 0.45 {
+                EnemyKind::Fast
+            } else {
+                EnemyKind::Normal
+            }
+        }
+    }
+}
+
+/// 一定間隔でアリーナの外周付近にランダムに敵を出現させる。
+/// 出現間隔と敵のHPはウェーブが進むほど厳しくなる
+fn spawn_enemies(
+    mut commands: Commands,
+    time: Res<Time>,
+    wave: Res<WaveInfo>,
+    mut timer: ResMut<EnemySpawnTimer>,
+) {
+    timer
+        .0
+        .set_duration(std::time::Duration::from_secs_f32(wave.spawn_interval_secs()));
     timer.0.tick(time.delta());
     if !timer.0.just_finished() {
         return;
@@ -56,10 +149,17 @@ fn spawn_enemies(mut commands: Commands, time: Res<Time>, mut timer: ResMut<Enem
         _ => Vec2::new(half_w, rng.random_range(-half_h..half_h)), // 右
     };
 
+    let kind = pick_enemy_kind(wave.number, rng.random());
+    let stats = kind.stats();
+
     commands.spawn((
-        Enemy,
-        Health::new(ENEMY_MAX_HP),
-        Sprite::from_color(Color::srgb(0.9, 0.25, 0.25), Vec2::splat(ENEMY_SIZE)),
+        Enemy {
+            size: stats.size,
+            speed: stats.speed,
+            contact_damage: stats.contact_damage,
+        },
+        Health::new(stats.max_hp * wave.enemy_hp_multiplier()),
+        Sprite::from_color(stats.color, Vec2::splat(stats.size)),
         Transform::from_xyz(position.x, position.y, 0.5),
     ));
 }
@@ -68,13 +168,13 @@ fn spawn_enemies(mut commands: Commands, time: Res<Time>, mut timer: ResMut<Enem
 fn chase_player(
     time: Res<Time>,
     player: Single<&Transform, With<Player>>,
-    mut enemies: Query<&mut Transform, (With<Enemy>, Without<Player>)>,
+    mut enemies: Query<(&mut Transform, &Enemy), Without<Player>>,
 ) {
     let player_position = player.translation.truncate();
 
-    for mut transform in &mut enemies {
+    for (mut transform, enemy) in &mut enemies {
         let direction = (player_position - transform.translation.truncate()).normalize_or_zero();
-        let movement = direction * ENEMY_SPEED * time.delta_secs();
+        let movement = direction * enemy.speed * time.delta_secs();
         transform.translation += movement.extend(0.0);
     }
 }
@@ -82,7 +182,7 @@ fn chase_player(
 /// 敵と接触したらプレイヤーにダメージを与える（無敵時間中は無効）
 fn hit_player(
     mut player: Single<(&Transform, &mut Player, &mut Health)>,
-    enemies: Query<&Transform, With<Enemy>>,
+    enemies: Query<(&Transform, &Enemy)>,
 ) {
     let (player_transform, player, health) = &mut *player;
 
@@ -90,16 +190,40 @@ fn hit_player(
         return;
     }
 
-    // 中心間の距離で接触を判定する（円同士の当たり判定の近似）
-    let hit_distance = (PLAYER_SIZE + ENEMY_SIZE) / 2.0;
     let player_position = player_transform.translation.truncate();
 
-    let touching = enemies.iter().any(|enemy_transform| {
-        player_position.distance(enemy_transform.translation.truncate()) < hit_distance
+    // 中心間の距離で接触を判定する（円同士の当たり判定の近似）
+    let touching_damage = enemies.iter().find_map(|(enemy_transform, enemy)| {
+        let hit_distance = (PLAYER_SIZE + enemy.size) / 2.0;
+        let distance = player_position.distance(enemy_transform.translation.truncate());
+        (distance < hit_distance).then_some(enemy.contact_damage)
     });
 
-    if touching {
-        health.current -= CONTACT_DAMAGE;
+    if let Some(damage) = touching_damage {
+        health.current -= damage;
         player.invincible_timer.reset();
+    }
+}
+
+/// ラン終了時に残っている敵（ボス含む）をすべて消す
+fn despawn_all_enemies(mut commands: Commands, enemies: Query<Entity, With<Enemy>>) {
+    for entity in &enemies {
+        commands.entity(entity).despawn();
+    }
+}
+
+/// HPが0以下になった敵を消し、死亡メッセージを送る
+fn despawn_dead_enemies(
+    mut commands: Commands,
+    mut died: MessageWriter<EnemyDied>,
+    enemies: Query<(Entity, &Transform, &Health), With<Enemy>>,
+) {
+    for (entity, transform, health) in &enemies {
+        if health.current <= 0.0 {
+            died.write(EnemyDied {
+                position: transform.translation.truncate(),
+            });
+            commands.entity(entity).despawn();
+        }
     }
 }
