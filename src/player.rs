@@ -1,6 +1,8 @@
 use bevy::prelude::*;
 
-use crate::{ARENA_HEIGHT, ARENA_WIDTH, Health, WINDOW_HEIGHT, WINDOW_WIDTH};
+use crate::wave::{WaveInfo, WavePhase};
+use crate::weapon::Weapon;
+use crate::{ARENA_HEIGHT, ARENA_WIDTH, GameState, Health, RunResult, WINDOW_HEIGHT, WINDOW_WIDTH};
 
 // プレイヤーの移動速度（ピクセル/秒）とサイズ
 pub const PLAYER_SPEED: f32 = 300.0;
@@ -20,10 +22,16 @@ pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_player).add_systems(
-            Update,
-            (move_player, tick_invincibility, check_player_death, camera_follow).chain(),
-        );
+        app.add_systems(OnEnter(GameState::Playing), spawn_player)
+            .add_systems(
+                Update,
+                move_player.run_if(in_state(WavePhase::Fighting)),
+            )
+            .add_systems(
+                Update,
+                (tick_invincibility, check_player_death, camera_follow).chain(),
+            )
+            .add_systems(OnExit(GameState::Playing), despawn_player);
     }
 }
 
@@ -86,14 +94,27 @@ fn tick_invincibility(time: Res<Time>, mut player: Single<(&mut Player, &mut Spr
     sprite.color.set_alpha(alpha);
 }
 
-/// HPが0になったらプレイヤーを消す（ゲームオーバー画面はマイルストーン⑦で実装）
+/// HPが0になったらランの結果を記録してリザルト画面へ移行する
 fn check_player_death(
     mut commands: Commands,
-    player: Single<(Entity, &Health), With<Player>>,
+    player: Single<&Health, With<Player>>,
+    wave: Res<WaveInfo>,
+    weapons: Query<&Weapon>,
+    mut next_state: ResMut<NextState<GameState>>,
 ) {
-    let (entity, health) = *player;
-    if health.current <= 0.0 {
-        info!("GAME OVER");
+    if player.current <= 0.0 {
+        commands.insert_resource(RunResult {
+            victory: false,
+            wave_reached: wave.number,
+            weapons: weapons.iter().map(|w| (w.weapon_type, w.level)).collect(),
+        });
+        next_state.set(GameState::Result);
+    }
+}
+
+/// ラン終了時にプレイヤーを消す
+fn despawn_player(mut commands: Commands, players: Query<Entity, With<Player>>) {
+    for entity in &players {
         commands.entity(entity).despawn();
     }
 }
