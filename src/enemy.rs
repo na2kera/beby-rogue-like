@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use rand::RngExt;
 
+use crate::assets::SpriteAssets;
 use crate::player::{PLAYER_SIZE, Player};
 use crate::wave::{WaveInfo, WavePhase};
 use crate::{ARENA_HEIGHT, ARENA_WIDTH, GameState, Health};
@@ -25,7 +26,6 @@ pub struct EnemyStats {
     pub speed: f32,
     pub max_hp: f32,
     pub contact_damage: f32,
-    pub color: Color,
 }
 
 impl EnemyKind {
@@ -36,22 +36,28 @@ impl EnemyKind {
                 speed: 150.0,
                 max_hp: 30.0,
                 contact_damage: 10.0,
-                color: Color::srgb(0.9, 0.25, 0.25), // 赤
             },
             EnemyKind::Fast => EnemyStats {
                 size: 22.0,
                 speed: 240.0,
                 max_hp: 15.0,
                 contact_damage: 8.0,
-                color: Color::srgb(0.95, 0.6, 0.2), // 橙
             },
             EnemyKind::Tank => EnemyStats {
                 size: 42.0,
                 speed: 90.0,
                 max_hp: 90.0,
                 contact_damage: 20.0,
-                color: Color::srgb(0.55, 0.15, 0.4), // 紫
             },
+        }
+    }
+
+    /// この種類の敵のスプライト画像を返す
+    fn image(self, sprites: &SpriteAssets) -> Handle<Image> {
+        match self {
+            EnemyKind::Normal => sprites.enemy_normal.clone(),
+            EnemyKind::Fast => sprites.enemy_fast.clone(),
+            EnemyKind::Tank => sprites.enemy_tank.clone(),
         }
     }
 }
@@ -127,6 +133,7 @@ fn spawn_enemies(
     mut commands: Commands,
     time: Res<Time>,
     wave: Res<WaveInfo>,
+    sprites: Res<SpriteAssets>,
     mut timer: ResMut<EnemySpawnTimer>,
 ) {
     timer
@@ -159,7 +166,11 @@ fn spawn_enemies(
             contact_damage: stats.contact_damage,
         },
         Health::new(stats.max_hp * wave.enemy_hp_multiplier()),
-        Sprite::from_color(stats.color, Vec2::splat(stats.size)),
+        Sprite {
+            image: kind.image(&sprites),
+            custom_size: Some(Vec2::splat(stats.size)),
+            ..default()
+        },
         Transform::from_xyz(position.x, position.y, 0.5),
     ));
 }
