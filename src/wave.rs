@@ -1,7 +1,9 @@
+use bevy::input::mouse::MouseButton;
 use bevy::prelude::*;
 
 use crate::assets::SpriteAssets;
 use crate::enemy::{Boss, Enemy};
+use crate::input::confirm_just_pressed;
 use crate::lang::{Language, UiFont};
 use crate::weapon::Weapon;
 use crate::{ARENA_HEIGHT, GameState, Health, RunResult};
@@ -202,13 +204,15 @@ fn spawn_intermission_screen(
     ));
 }
 
-/// スペースキーで次のウェーブを開始する
+/// スペースキー / タップで次のウェーブを開始する
 fn advance_wave(
     keys: Res<ButtonInput<KeyCode>>,
+    touches: Res<Touches>,
+    mouse: Res<ButtonInput<MouseButton>>,
     mut wave: ResMut<WaveInfo>,
     mut next_phase: ResMut<NextState<WavePhase>>,
 ) {
-    if keys.just_pressed(KeyCode::Space) {
+    if confirm_just_pressed(&keys, &touches, &mouse) {
         *wave = WaveInfo::new(wave.number + 1);
         next_phase.set(WavePhase::Fighting);
     }

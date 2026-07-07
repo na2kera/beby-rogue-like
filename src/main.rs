@@ -1,5 +1,6 @@
 mod assets;
 mod enemy;
+mod input;
 mod lang;
 mod pickup;
 mod player;
@@ -74,6 +75,7 @@ fn main() {
         .init_state::<GameState>()
         .add_plugins((
             assets::SpriteAssetsPlugin,
+            input::GameInputPlugin,
             lang::LangPlugin,
             player::PlayerPlugin,
             enemy::EnemyPlugin,

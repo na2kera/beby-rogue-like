@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 
 use crate::assets::{PLAYER_WALK_FRAME_COUNT, SpriteAssets};
+use crate::input::{GameInputSet, MoveInput};
 use crate::wave::{WaveInfo, WavePhase};
 use crate::weapon::Weapon;
 use crate::{
@@ -40,6 +41,7 @@ impl Plugin for PlayerPlugin {
                 Update,
                 (move_player, animate_walk)
                     .chain()
+                    .after(GameInputSet)
                     .run_if(in_state(WavePhase::Fighting)),
             )
             .add_systems(
@@ -71,30 +73,15 @@ fn spawn_player(mut commands: Commands, sprites: Res<SpriteAssets>) {
     ));
 }
 
-/// WASD / 矢印キーの入力でプレイヤーを移動させる
+/// キーボード / 仮想スティックの入力でプレイヤーを移動させる
 fn move_player(
-    keys: Res<ButtonInput<KeyCode>>,
+    move_input: Res<MoveInput>,
     time: Res<Time>,
     mut player: Single<(&mut Transform, &mut Player)>,
 ) {
     let (transform, state) = &mut *player;
 
-    let mut direction = Vec2::ZERO;
-    if keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp) {
-        direction.y += 1.0;
-    }
-    if keys.pressed(KeyCode::KeyS) || keys.pressed(KeyCode::ArrowDown) {
-        direction.y -= 1.0;
-    }
-    if keys.pressed(KeyCode::KeyA) || keys.pressed(KeyCode::ArrowLeft) {
-        direction.x -= 1.0;
-    }
-    if keys.pressed(KeyCode::KeyD) || keys.pressed(KeyCode::ArrowRight) {
-        direction.x += 1.0;
-    }
-
-    // 斜め移動が速くならないように長さを1に揃える（入力なしなら零ベクトルのまま）
-    let direction = direction.normalize_or_zero();
+    let direction = move_input.0;
     state.moving = direction != Vec2::ZERO;
 
     let mut position =
