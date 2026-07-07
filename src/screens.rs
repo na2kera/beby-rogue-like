@@ -1,5 +1,7 @@
+use bevy::input::mouse::MouseButton;
 use bevy::prelude::*;
 
+use crate::input::confirm_just_pressed;
 use crate::lang::{Language, UiFont};
 use crate::{GameState, RunResult};
 
@@ -14,6 +16,10 @@ enum TitleText {
     MoveHint,
     LangHint,
 }
+
+/// 言語切替ボタンに付けるマーカー（タップ/クリックで切替、ゲーム開始は誘発しない）
+#[derive(Component)]
+struct LangButton;
 
 /// リザルト画面のUIルートに付けるマーカー
 #[derive(Component)]
@@ -59,7 +65,14 @@ fn spawn_title_screen(mut commands: Commands, font: Res<UiFont>) {
             (Text::new("BEBY ROGUE LIKE"), text_font(56.0)),
             (TitleText::Start, Text::new(""), text_font(24.0)),
             (TitleText::MoveHint, Text::new(""), text_font(18.0)),
-            (TitleText::LangHint, Text::new(""), text_font(18.0)),
+            (
+                LangButton,
+                Button,
+                BackgroundColor(Color::NONE),
+                TitleText::LangHint,
+                Text::new(""),
+                text_font(18.0)
+            ),
         ],
     ));
 }
@@ -75,16 +88,29 @@ fn update_title_texts(lang: Res<Language>, mut texts: Query<(&TitleText, &mut Te
     }
 }
 
-/// スペースでゲーム開始、Lキーで言語切替
+/// スペース/タップでゲーム開始、Lキーまたは言語ボタンのタップで言語切替
 fn title_input(
     keys: Res<ButtonInput<KeyCode>>,
+    touches: Res<Touches>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    lang_button: Query<&Interaction, (Changed<Interaction>, With<LangButton>)>,
     mut lang: ResMut<Language>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
+    let mut lang_toggled = false;
+    for interaction in &lang_button {
+        if *interaction == Interaction::Pressed {
+            *lang = lang.toggle();
+            lang_toggled = true;
+        }
+    }
     if keys.just_pressed(KeyCode::KeyL) {
         *lang = lang.toggle();
+        lang_toggled = true;
     }
-    if keys.just_pressed(KeyCode::Space) {
+
+    // 言語ボタンをタップしたフレームはゲーム開始判定をスキップする
+    if !lang_toggled && confirm_just_pressed(&keys, &touches, &mouse) {
         next_state.set(GameState::Playing);
     }
 }
@@ -147,9 +173,14 @@ fn spawn_result_screen(
     ));
 }
 
-/// スペースでタイトルへ戻る
-fn result_input(keys: Res<ButtonInput<KeyCode>>, mut next_state: ResMut<NextState<GameState>>) {
-    if keys.just_pressed(KeyCode::Space) {
+/// スペース/タップでタイトルへ戻る
+fn result_input(
+    keys: Res<ButtonInput<KeyCode>>,
+    touches: Res<Touches>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    mut next_state: ResMut<NextState<GameState>>,
+) {
+    if confirm_just_pressed(&keys, &touches, &mouse) {
         next_state.set(GameState::Title);
     }
 }

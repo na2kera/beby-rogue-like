@@ -19,22 +19,22 @@ impl Language {
 
     pub fn press_start(self) -> &'static str {
         match self {
-            Language::English => "Press SPACE to Start",
-            Language::Japanese => "スペースキーでスタート",
+            Language::English => "Tap or Press SPACE to Start",
+            Language::Japanese => "タップかスペースキーでスタート",
         }
     }
 
     pub fn move_hint(self) -> &'static str {
         match self {
-            Language::English => "Move: WASD / Arrow Keys",
-            Language::Japanese => "移動: WASD / 矢印キー",
+            Language::English => "Move: Drag / WASD / Arrow Keys",
+            Language::Japanese => "移動: ドラッグ / WASD / 矢印キー",
         }
     }
 
     pub fn lang_hint(self) -> &'static str {
         match self {
-            Language::English => "Language: English (Press L)",
-            Language::Japanese => "言語: 日本語（Lキーで切替）",
+            Language::English => "Language: English (Tap or Press L)",
+            Language::Japanese => "言語: 日本語（タップかLキーで切替）",
         }
     }
 
@@ -47,8 +47,8 @@ impl Language {
 
     pub fn press_next_wave(self) -> &'static str {
         match self {
-            Language::English => "Press SPACE for next wave",
-            Language::Japanese => "スペースキーで次のウェーブへ",
+            Language::English => "Tap or Press SPACE for next wave",
+            Language::Japanese => "タップかスペースキーで次のウェーブへ",
         }
     }
 
@@ -75,8 +75,8 @@ impl Language {
 
     pub fn press_return_title(self) -> &'static str {
         match self {
-            Language::English => "Press SPACE to return to title",
-            Language::Japanese => "スペースキーでタイトルへ戻る",
+            Language::English => "Tap or Press SPACE to return to title",
+            Language::Japanese => "タップかスペースキーでタイトルへ戻る",
         }
     }
 
