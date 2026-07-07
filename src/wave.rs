@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 
+use crate::assets::SpriteAssets;
 use crate::enemy::{Boss, Enemy};
 use crate::lang::{Language, UiFont};
 use crate::weapon::Weapon;
@@ -107,7 +108,11 @@ fn tick_wave(
 }
 
 /// 最終ウェーブの開始時にボスを1体出現させる
-fn spawn_boss_on_final_wave(mut commands: Commands, mut wave: ResMut<WaveInfo>) {
+fn spawn_boss_on_final_wave(
+    mut commands: Commands,
+    sprites: Res<SpriteAssets>,
+    mut wave: ResMut<WaveInfo>,
+) {
     if wave.number != FINAL_WAVE || wave.boss_spawned {
         return;
     }
@@ -121,7 +126,11 @@ fn spawn_boss_on_final_wave(mut commands: Commands, mut wave: ResMut<WaveInfo>) 
             contact_damage: 30.0,
         },
         Health::new(1500.0),
-        Sprite::from_color(Color::srgb(0.5, 0.05, 0.1), Vec2::splat(96.0)),
+        Sprite {
+            image: sprites.boss.clone(),
+            custom_size: Some(Vec2::splat(96.0)),
+            ..default()
+        },
         Transform::from_xyz(0.0, ARENA_HEIGHT / 2.0 - 200.0, 0.6),
     ));
 }

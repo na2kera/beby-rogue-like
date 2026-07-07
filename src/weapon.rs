@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 
+use crate::assets::SpriteAssets;
 use crate::enemy::Enemy;
 use crate::player::Player;
 use crate::wave::WavePhase;
@@ -128,8 +129,7 @@ fn nearest_enemy_position(
 fn fire_weapons(
     mut commands: Commands,
     time: Res<Time>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
+    sprites: Res<SpriteAssets>,
     player: Single<&Transform, With<Player>>,
     mut weapons: Query<&mut Weapon>,
     mut enemies: Query<(Entity, &Transform, &Enemy, &mut Health)>,
@@ -146,20 +146,19 @@ fn fire_weapons(
         let bonus = (weapon.level - 1) as f32;
 
         match weapon.weapon_type {
-            // 剣・オーラ: プレイヤー周囲の敵全員に即時ダメージ＋円エフェクト
+            // 剣・オーラ: プレイヤー周囲の敵全員に即時ダメージ＋範囲エフェクト
             WeaponType::Sword | WeaponType::Aura => {
-                let (damage, radius, color) = match weapon.weapon_type {
-                    WeaponType::Sword => (
-                        15.0 + 5.0 * bonus,
-                        120.0 + 10.0 * bonus,
-                        Color::srgba(1.0, 0.9, 0.3, 0.25), // 黄
-                    ),
-                    _ => (
-                        5.0 + 2.0 * bonus,
-                        90.0 + 8.0 * bonus,
-                        Color::srgba(0.6, 0.3, 0.9, 0.2), // 紫
-                    ),
+                let (damage, radius, image) = match weapon.weapon_type {
+                    WeaponType::Sword => {
+                        (15.0 + 5.0 * bonus, 120.0 + 10.0 * bonus, &sprites.slash)
+                    }
+                    _ => (5.0 + 2.0 * bonus, 90.0 + 8.0 * bonus, &sprites.aura),
                 };
+
+                // 斬撃エフェクトは最寄りの敵の方向へ向ける（ダメージ自体は全方位）
+                let effect_angle = nearest_enemy_position(player_position, &enemies)
+                    .map(|target| (target - player_position).to_angle())
+                    .unwrap_or(0.0);
 
                 for (_, enemy_transform, _, mut health) in &mut enemies {
                     let distance =
@@ -170,9 +169,15 @@ fn fire_weapons(
                 }
 
                 commands.spawn((
-                    Mesh2d(meshes.add(Circle::new(radius))),
-                    MeshMaterial2d(materials.add(color)),
-                    Transform::from_xyz(player_position.x, player_position.y, 0.8),
+                    Sprite {
+                        image: image.clone(),
+                        custom_size: Some(Vec2::splat(radius * 2.0)),
+                        // エフェクトは薄めに重ねる
+                        color: Color::srgba(1.0, 1.0, 1.0, 0.7),
+                        ..default()
+                    },
+                    Transform::from_xyz(player_position.x, player_position.y, 0.8)
+                        .with_rotation(Quat::from_rotation_z(effect_angle)),
                     Lifetime(Timer::from_seconds(0.15, TimerMode::Once)),
                 ));
             }
@@ -196,8 +201,7 @@ fn fire_weapons(
                         velocity,
                         damage,
                         false,
-                        Color::srgb(0.8, 0.95, 1.0), // 水色
-                        Vec2::new(18.0, 5.0),
+                        sprites.arrow.clone(),
                     );
                 }
             }
@@ -215,8 +219,7 @@ fn fire_weapons(
                     velocity,
                     damage,
                     true,
-                    Color::srgb(0.6, 0.95, 0.6), // 黄緑
-                    Vec2::new(28.0, 6.0),
+                    sprites.spear.clone(),
                 );
             }
 
@@ -232,7 +235,7 @@ fn fire_weapons(
                         target,
                         speed: 400.0,
                     },
-                    Sprite::from_color(Color::srgb(0.35, 0.35, 0.35), Vec2::splat(16.0)),
+                    Sprite::from_image(sprites.bomb.clone()),
                     Transform::from_xyz(player_position.x, player_position.y, 0.7),
                 ));
             }
@@ -240,15 +243,15 @@ fn fire_weapons(
     }
 }
 
-/// 弾エンティティを1つ生成する（矢・槍で共用）
+/// 弾エンティティを1つ生成する（矢・槍で共用）。
+/// 弾の画像は右向きに描かれている前提で、進行方向に回転させる
 fn spawn_projectile(
     commands: &mut Commands,
     position: Vec2,
     velocity: Vec2,
     damage: f32,
     pierce: bool,
-    color: Color,
-    size: Vec2,
+    image: Handle<Image>,
 ) {
     commands.spawn((
         Projectile {
@@ -257,7 +260,7 @@ fn spawn_projectile(
             pierce,
             already_hit: Vec::new(),
         },
-        Sprite::from_color(color, size),
+        Sprite::from_image(image),
         Transform::from_xyz(position.x, position.y, 0.7)
             .with_rotation(Quat::from_rotation_z(velocity.to_angle())),
         // 射程の代わり: 2秒で消える
@@ -301,8 +304,7 @@ fn move_projectiles(
 fn move_bombs(
     mut commands: Commands,
     time: Res<Time>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
+    sprites: Res<SpriteAssets>,
     mut bombs: Query<(Entity, &mut Transform, &BombProjectile)>,
     mut enemies: Query<(&Transform, &Enemy, &mut Health), Without<BombProjectile>>,
 ) {
@@ -326,8 +328,11 @@ fn move_bombs(
         }
 
         commands.spawn((
-            Mesh2d(meshes.add(Circle::new(bomb.explosion_radius))),
-            MeshMaterial2d(materials.add(Color::srgba(1.0, 0.5, 0.1, 0.4))),
+            Sprite {
+                image: sprites.explosion.clone(),
+                custom_size: Some(Vec2::splat(bomb.explosion_radius * 2.0)),
+                ..default()
+            },
             Transform::from_xyz(bomb.target.x, bomb.target.y, 0.8),
             Lifetime(Timer::from_seconds(0.2, TimerMode::Once)),
         ));

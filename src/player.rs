@@ -1,8 +1,12 @@
 use bevy::prelude::*;
 
+use crate::assets::{PLAYER_WALK_FRAME_COUNT, SpriteAssets};
 use crate::wave::{WaveInfo, WavePhase};
 use crate::weapon::Weapon;
-use crate::{ARENA_HEIGHT, ARENA_WIDTH, GameState, Health, RunResult, WINDOW_HEIGHT, WINDOW_WIDTH};
+use crate::{
+    ARENA_HEIGHT, ARENA_WIDTH, GameState, Health, RunResult, WALL_THICKNESS, WINDOW_HEIGHT,
+    WINDOW_WIDTH,
+};
 
 // プレイヤーの移動速度（ピクセル/秒）とサイズ
 pub const PLAYER_SPEED: f32 = 300.0;
@@ -12,11 +16,20 @@ const PLAYER_MAX_HP: f32 = 100.0;
 /// 被弾後の無敵時間（秒）
 const HIT_INVINCIBLE_SECS: f32 = 0.5;
 
+/// 歩行アニメーションのコマ送り間隔（秒）
+const WALK_FRAME_SECS: f32 = 0.12;
+
 /// プレイヤーのコンポーネント。被弾後の無敵時間タイマーを持つ
 #[derive(Component)]
 pub struct Player {
     pub invincible_timer: Timer,
+    /// このフレームに移動入力があったか（歩行アニメーションの切替に使う）
+    moving: bool,
 }
+
+/// 歩行アニメーションのコマ送りタイマー
+#[derive(Component)]
+struct WalkAnimation(Timer);
 
 pub struct PlayerPlugin;
 
@@ -25,7 +38,9 @@ impl Plugin for PlayerPlugin {
         app.add_systems(OnEnter(GameState::Playing), spawn_player)
             .add_systems(
                 Update,
-                move_player.run_if(in_state(WavePhase::Fighting)),
+                (move_player, animate_walk)
+                    .chain()
+                    .run_if(in_state(WavePhase::Fighting)),
             )
             .add_systems(
                 Update,
@@ -35,15 +50,23 @@ impl Plugin for PlayerPlugin {
     }
 }
 
-fn spawn_player(mut commands: Commands) {
+fn spawn_player(mut commands: Commands, sprites: Res<SpriteAssets>) {
     // 無敵タイマーは「経過済み」の状態で持たせ、開始直後から被弾できるようにする
     let mut invincible_timer = Timer::from_seconds(HIT_INVINCIBLE_SECS, TimerMode::Once);
     invincible_timer.finish();
 
     commands.spawn((
-        Player { invincible_timer },
+        Player {
+            invincible_timer,
+            moving: false,
+        },
+        WalkAnimation(Timer::from_seconds(WALK_FRAME_SECS, TimerMode::Repeating)),
         Health::new(PLAYER_MAX_HP),
-        Sprite::from_color(Color::srgb(0.2, 0.5, 1.0), Vec2::splat(PLAYER_SIZE)),
+        Sprite {
+            image: sprites.player.clone(),
+            custom_size: Some(Vec2::splat(PLAYER_SIZE)),
+            ..default()
+        },
         Transform::from_xyz(0.0, 0.0, 1.0),
     ));
 }
@@ -52,8 +75,10 @@ fn spawn_player(mut commands: Commands) {
 fn move_player(
     keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
-    mut player: Single<&mut Transform, With<Player>>,
+    mut player: Single<(&mut Transform, &mut Player)>,
 ) {
+    let (transform, state) = &mut *player;
+
     let mut direction = Vec2::ZERO;
     if keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp) {
         direction.y += 1.0;
@@ -70,15 +95,44 @@ fn move_player(
 
     // 斜め移動が速くならないように長さを1に揃える（入力なしなら零ベクトルのまま）
     let direction = direction.normalize_or_zero();
+    state.moving = direction != Vec2::ZERO;
 
     let mut position =
-        player.translation.truncate() + direction * PLAYER_SPEED * time.delta_secs();
+        transform.translation.truncate() + direction * PLAYER_SPEED * time.delta_secs();
 
     // アリーナの壁の内側にとどめる
     let bound = Vec2::new(ARENA_WIDTH, ARENA_HEIGHT) / 2.0 - PLAYER_SIZE / 2.0;
     position = position.clamp(-bound, bound);
 
-    player.translation = position.extend(player.translation.z);
+    transform.translation = position.extend(transform.translation.z);
+}
+
+/// 移動中は歩行スプライトシートをコマ送りし、停止中は立ち絵に戻す
+fn animate_walk(
+    time: Res<Time>,
+    sprites: Res<SpriteAssets>,
+    mut player: Single<(&Player, &mut Sprite, &mut WalkAnimation)>,
+) {
+    let (state, sprite, animation) = &mut *player;
+
+    if !state.moving {
+        sprite.image = sprites.player.clone();
+        sprite.texture_atlas = None;
+        animation.0.reset();
+        return;
+    }
+
+    sprite.image = sprites.player_walk.clone();
+    // 歩き始めた瞬間にアトラスを設定し、以降はコマ番号だけ進める
+    let atlas = sprite.texture_atlas.get_or_insert_with(|| TextureAtlas {
+        layout: sprites.player_walk_layout.clone(),
+        index: 0,
+    });
+
+    animation.0.tick(time.delta());
+    if animation.0.just_finished() {
+        atlas.index = (atlas.index + 1) % PLAYER_WALK_FRAME_COUNT;
+    }
 }
 
 /// 無敵時間タイマーを進め、無敵中はスプライトを半透明にして視覚的に分かるようにする
@@ -124,10 +178,11 @@ fn camera_follow(
     player: Single<&Transform, With<Player>>,
     mut camera: Single<&mut Transform, (With<Camera2d>, Without<Player>)>,
 ) {
-    // カメラ中心が動ける範囲 = アリーナ半分 - 画面半分
+    // カメラ中心が動ける範囲 = (アリーナ + 両側の壁)の半分 - 画面半分。
+    // 壁の分だけ広げることで、端に寄ったとき壁タイルが画面に映る
     let bound = Vec2::new(
-        (ARENA_WIDTH - WINDOW_WIDTH) / 2.0,
-        (ARENA_HEIGHT - WINDOW_HEIGHT) / 2.0,
+        (ARENA_WIDTH + WALL_THICKNESS * 2.0 - WINDOW_WIDTH) / 2.0,
+        (ARENA_HEIGHT + WALL_THICKNESS * 2.0 - WINDOW_HEIGHT) / 2.0,
     )
     .max(Vec2::ZERO);
 

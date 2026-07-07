@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use rand::RngExt;
 
 use crate::Health;
+use crate::assets::SpriteAssets;
 use crate::enemy::EnemyDied;
 use crate::GameState;
 use crate::player::{PLAYER_SIZE, Player};
@@ -44,6 +45,7 @@ impl Plugin for PickupPlugin {
 fn spawn_drops(
     mut commands: Commands,
     mut died: MessageReader<EnemyDied>,
+    sprites: Res<SpriteAssets>,
     weapons: Query<&Weapon>,
 ) {
     // ドロップ候補 = まだ強化余地のある所持武器 ＋（枠が空いていれば）未所持武器。
@@ -69,14 +71,18 @@ fn spawn_drops(
             continue;
         };
 
-        let color = match kind {
-            PickupKind::Weapon(_) => Color::srgb(0.95, 0.85, 0.2), // 黄
-            PickupKind::Heal => Color::srgb(0.3, 0.9, 0.4),        // 緑
+        let image = match kind {
+            PickupKind::Weapon(weapon_type) => sprites.weapon_drop_icon(weapon_type),
+            PickupKind::Heal => sprites.drop_heal.clone(),
         };
 
         commands.spawn((
             Pickup(kind),
-            Sprite::from_color(color, Vec2::splat(PICKUP_SIZE)),
+            Sprite {
+                image,
+                custom_size: Some(Vec2::splat(PICKUP_SIZE)),
+                ..default()
+            },
             Transform::from_xyz(event.position.x, event.position.y, 0.3),
         ));
     }
