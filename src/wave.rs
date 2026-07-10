@@ -8,8 +8,11 @@ use crate::lang::{Language, UiFont};
 use crate::weapon::Weapon;
 use crate::{ARENA_HEIGHT, GameState, Health, RunResult};
 
-/// 最終ウェーブ番号（ボスが出る）
+/// 最終ウェーブ番号（最終ボスが出る）
 pub const FINAL_WAVE: u32 = 10;
+
+/// 中ボスが出るウェーブ番号
+pub const MID_BOSS_WAVE: u32 = 5;
 
 /// ウェーブの進行状態。GameState::Playing の間だけ存在するサブステート。
 /// Fighting = 戦闘中、Intermission = ウェーブ間の結果確認画面
@@ -50,6 +53,12 @@ impl WaveInfo {
     pub fn spawn_interval_secs(&self) -> f32 {
         (1.2 * 0.92f32.powi(self.number as i32 - 1)).max(0.4)
     }
+
+    /// ボスウェーブかどうか。
+    /// ボスウェーブは時間制ではなく、敵を全滅させると次へ進める
+    pub fn is_boss_wave(&self) -> bool {
+        self.number == MID_BOSS_WAVE || self.number >= FINAL_WAVE
+    }
 }
 
 /// 開発用: `START_WAVE=10 cargo run` のように開始ウェーブを指定できる
@@ -71,10 +80,10 @@ impl Plugin for WavePlugin {
         app.add_sub_state::<WavePhase>()
             .insert_resource(WaveInfo::new(start_wave_number()))
             .add_systems(OnEnter(GameState::Playing), reset_wave)
-            .add_systems(OnEnter(WavePhase::Fighting), spawn_boss_on_final_wave)
+            .add_systems(OnEnter(WavePhase::Fighting), spawn_boss_on_boss_wave)
             .add_systems(
                 Update,
-                (tick_wave, check_victory).run_if(in_state(WavePhase::Fighting)),
+                (tick_wave, check_boss_wave_cleared).run_if(in_state(WavePhase::Fighting)),
             )
             .add_systems(
                 OnEnter(WavePhase::Intermission),
@@ -94,13 +103,13 @@ fn reset_wave(mut wave: ResMut<WaveInfo>) {
 }
 
 /// ウェーブの残り時間を進め、時間切れでリザルトへ移行する。
-/// 最終ウェーブだけは時間制ではなく「ボスを倒したら勝利」
+/// ボスウェーブ（5と10）だけは時間制ではなく「敵を全滅させたらクリア」
 fn tick_wave(
     time: Res<Time>,
     mut wave: ResMut<WaveInfo>,
     mut next_phase: ResMut<NextState<WavePhase>>,
 ) {
-    if wave.number >= FINAL_WAVE {
+    if wave.is_boss_wave() {
         return;
     }
     wave.timer.tick(time.delta());
@@ -109,49 +118,64 @@ fn tick_wave(
     }
 }
 
-/// 最終ウェーブの開始時にボスを1体出現させる
-fn spawn_boss_on_final_wave(
+/// ボスウェーブの開始時にボスを1体出現させる。
+/// Wave 5 は中ボス、Wave 10 は最終ボス
+fn spawn_boss_on_boss_wave(
     mut commands: Commands,
     sprites: Res<SpriteAssets>,
     mut wave: ResMut<WaveInfo>,
 ) {
-    if wave.number != FINAL_WAVE || wave.boss_spawned {
+    if !wave.is_boss_wave() || wave.boss_spawned {
         return;
     }
     wave.boss_spawned = true;
 
+    let (size, speed, contact_damage, max_hp) = if wave.number >= FINAL_WAVE {
+        (144.0, 70.0, 30.0, 1500.0)
+    } else {
+        (108.0, 85.0, 20.0, 600.0)
+    };
+
     commands.spawn((
         Boss,
         Enemy {
-            size: 144.0,
-            speed: 70.0,
-            contact_damage: 30.0,
+            size,
+            speed,
+            contact_damage,
         },
-        Health::new(1500.0),
+        Health::new(max_hp),
         Sprite {
             image: sprites.boss.clone(),
-            custom_size: Some(Vec2::splat(144.0)),
+            custom_size: Some(Vec2::splat(size)),
             ..default()
         },
         Transform::from_xyz(0.0, ARENA_HEIGHT / 2.0 - 200.0, 0.6),
     ));
 }
 
-/// 最終ウェーブでボスが倒されたら勝利としてリザルト画面へ移行する
-fn check_victory(
+/// ボスウェーブで敵（ボス含む）を全滅させたら次へ進む。
+/// 最終ウェーブなら勝利、中ボスウェーブならウェーブ間リザルトへ
+fn check_boss_wave_cleared(
     mut commands: Commands,
     wave: Res<WaveInfo>,
-    bosses: Query<(), With<Boss>>,
+    enemies: Query<(), With<Enemy>>,
     weapons: Query<&Weapon>,
     mut next_state: ResMut<NextState<GameState>>,
+    mut next_phase: ResMut<NextState<WavePhase>>,
 ) {
-    if wave.number >= FINAL_WAVE && wave.boss_spawned && bosses.is_empty() {
+    if !wave.is_boss_wave() || !wave.boss_spawned || !enemies.is_empty() {
+        return;
+    }
+
+    if wave.number >= FINAL_WAVE {
         commands.insert_resource(RunResult {
             victory: true,
             wave_reached: wave.number,
             weapons: weapons.iter().map(|w| (w.weapon_type, w.level)).collect(),
         });
         next_state.set(GameState::Result);
+    } else {
+        next_phase.set(WavePhase::Intermission);
     }
 }
 

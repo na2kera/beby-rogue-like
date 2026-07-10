@@ -135,7 +135,14 @@ fn spawn_enemies(
     wave: Res<WaveInfo>,
     sprites: Res<SpriteAssets>,
     mut timer: ResMut<EnemySpawnTimer>,
+    bosses: Query<(), With<Boss>>,
 ) {
+    // ボスウェーブはボス討伐後の増援を止める。
+    // 残った敵を全滅させればウェーブクリアになる
+    if wave.is_boss_wave() && wave.boss_spawned && bosses.is_empty() {
+        return;
+    }
+
     timer
         .0
         .set_duration(std::time::Duration::from_secs_f32(wave.spawn_interval_secs()));
