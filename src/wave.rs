@@ -123,14 +123,14 @@ fn spawn_boss_on_final_wave(
     commands.spawn((
         Boss,
         Enemy {
-            size: 96.0,
+            size: 144.0,
             speed: 70.0,
             contact_damage: 30.0,
         },
         Health::new(1500.0),
         Sprite {
             image: sprites.boss.clone(),
-            custom_size: Some(Vec2::splat(96.0)),
+            custom_size: Some(Vec2::splat(144.0)),
             ..default()
         },
         Transform::from_xyz(0.0, ARENA_HEIGHT / 2.0 - 200.0, 0.6),
