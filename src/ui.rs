@@ -2,7 +2,7 @@ use bevy::prelude::*;
 
 use crate::lang::{Language, UiFont};
 use crate::player::Player;
-use crate::wave::{FINAL_WAVE, WaveInfo};
+use crate::wave::WaveInfo;
 use crate::weapon::Weapon;
 use crate::{GameState, Health};
 
@@ -97,7 +97,7 @@ fn update_hp_text(
 }
 
 fn update_wave_text(wave: Res<WaveInfo>, mut text: Single<&mut Text, With<WaveText>>) {
-    text.0 = if wave.number >= FINAL_WAVE {
+    text.0 = if wave.is_boss_wave() {
         format!("Wave {}   BOSS", wave.number)
     } else {
         format!(
