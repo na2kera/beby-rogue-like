@@ -9,6 +9,7 @@ mod ui;
 mod wave;
 mod weapon;
 
+use bevy::camera::ScalingMode;
 use bevy::prelude::*;
 use bevy::sprite::SpriteImageMode;
 
@@ -57,16 +58,33 @@ impl Health {
     }
 }
 
+/// プラットフォームごとのウィンドウ設定。
+/// PCは固定サイズのウィンドウ、iOSは端末の画面サイズに合わせたフルスクリーン。
+/// iOSで固定解像度を指定すると、実画面と食い違って描画が切り取られてしまう
+fn primary_window() -> Window {
+    #[cfg(target_os = "ios")]
+    {
+        Window {
+            mode: bevy::window::WindowMode::BorderlessFullscreen(MonitorSelection::Primary),
+            ..default()
+        }
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        Window {
+            title: "Beby Rogue Like".into(),
+            resolution: (WINDOW_WIDTH as u32, WINDOW_HEIGHT as u32).into(),
+            ..default()
+        }
+    }
+}
+
 fn main() {
     App::new()
         .add_plugins(
             DefaultPlugins
                 .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        title: "Beby Rogue Like".into(),
-                        resolution: (WINDOW_WIDTH as u32, WINDOW_HEIGHT as u32).into(),
-                        ..default()
-                    }),
+                    primary_window: Some(primary_window()),
                     ..default()
                 })
                 // ドット絵がぼやけないよう、拡大縮小を最近傍補間にする
@@ -91,7 +109,17 @@ fn main() {
 
 /// カメラとアリーナの床・壁を生成する（全画面で共通なので起動時に一度だけ）
 fn setup_arena(mut commands: Commands, sprites: Res<SpriteAssets>) {
-    commands.spawn(Camera2d);
+    // 画面の縦に映る範囲を常に WINDOW_HEIGHT に固定する。
+    // 横はアスペクト比に応じて変わるので、縦横比が違う端末でも見た目の拡大率が揃う
+    commands.spawn((
+        Camera2d,
+        Projection::from(OrthographicProjection {
+            scaling_mode: ScalingMode::FixedVertical {
+                viewport_height: WINDOW_HEIGHT,
+            },
+            ..OrthographicProjection::default_2d()
+        }),
+    ));
 
     // アリーナの床（64x64 のタイル画像を敷き詰める）
     commands.spawn((

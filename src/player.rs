@@ -4,10 +4,7 @@ use crate::assets::{PLAYER_WALK_FRAME_COUNT, SpriteAssets};
 use crate::input::{GameInputSet, MoveInput};
 use crate::wave::{WaveInfo, WavePhase};
 use crate::weapon::Weapon;
-use crate::{
-    ARENA_HEIGHT, ARENA_WIDTH, GameState, Health, RunResult, WALL_THICKNESS, WINDOW_HEIGHT,
-    WINDOW_WIDTH,
-};
+use crate::{ARENA_HEIGHT, ARENA_WIDTH, GameState, Health, RunResult, WALL_THICKNESS};
 
 // プレイヤーの移動速度（ピクセル/秒）とサイズ
 pub const PLAYER_SPEED: f32 = 300.0;
@@ -161,18 +158,25 @@ fn despawn_player(mut commands: Commands, players: Query<Entity, With<Player>>) 
 }
 
 /// カメラをプレイヤーに追従させる（ただしアリーナの外は映さない）
+#[allow(clippy::type_complexity)]
 fn camera_follow(
     player: Single<&Transform, With<Player>>,
-    mut camera: Single<&mut Transform, (With<Camera2d>, Without<Player>)>,
+    mut camera: Single<(&mut Transform, &Projection), (With<Camera2d>, Without<Player>)>,
 ) {
+    let (transform, projection) = &mut *camera;
+
+    // 画面に実際に映っている範囲。アスペクト比によって横幅が変わるため、
+    // 固定のウィンドウサイズではなく投影の area から毎フレーム取得する
+    let Projection::Orthographic(ortho) = projection else {
+        return;
+    };
+    let visible = ortho.area.size();
+
     // カメラ中心が動ける範囲 = (アリーナ + 両側の壁)の半分 - 画面半分。
     // 壁の分だけ広げることで、端に寄ったとき壁タイルが画面に映る
-    let bound = Vec2::new(
-        (ARENA_WIDTH + WALL_THICKNESS * 2.0 - WINDOW_WIDTH) / 2.0,
-        (ARENA_HEIGHT + WALL_THICKNESS * 2.0 - WINDOW_HEIGHT) / 2.0,
-    )
-    .max(Vec2::ZERO);
+    let bound = ((Vec2::new(ARENA_WIDTH, ARENA_HEIGHT) + WALL_THICKNESS * 2.0 - visible) / 2.0)
+        .max(Vec2::ZERO);
 
     let target = player.translation.truncate().clamp(-bound, bound);
-    camera.translation = target.extend(camera.translation.z);
+    transform.translation = target.extend(transform.translation.z);
 }
