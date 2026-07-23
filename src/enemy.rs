@@ -128,7 +128,7 @@ fn pick_enemy_kind(wave_number: u32, roll: f32) -> EnemyKind {
 }
 
 /// 一定間隔でアリーナの外周付近にランダムに敵を出現させる。
-/// 出現間隔と敵のHPはウェーブが進むほど厳しくなる
+/// 出現間隔・HP・攻撃力・移動速度はウェーブが進むほど厳しくなる
 fn spawn_enemies(
     mut commands: Commands,
     time: Res<Time>,
@@ -169,8 +169,8 @@ fn spawn_enemies(
     commands.spawn((
         Enemy {
             size: stats.size,
-            speed: stats.speed,
-            contact_damage: stats.contact_damage,
+            speed: stats.speed * wave.enemy_speed_multiplier(),
+            contact_damage: stats.contact_damage * wave.enemy_damage_multiplier(),
         },
         Health::new(stats.max_hp * wave.enemy_hp_multiplier()),
         Sprite {

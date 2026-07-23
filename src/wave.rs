@@ -54,6 +54,16 @@ impl WaveInfo {
         (1.2 * 0.92f32.powi(self.number as i32 - 1)).max(0.4)
     }
 
+    /// 敵の接触ダメージ倍率（ウェーブが進むほど痛くなる）
+    pub fn enemy_damage_multiplier(&self) -> f32 {
+        1.0 + 0.10 * (self.number - 1) as f32
+    }
+
+    /// 敵の移動速度倍率（ウェーブが進むほど速くなる。速すぎると理不尽なので上限あり）
+    pub fn enemy_speed_multiplier(&self) -> f32 {
+        (1.0 + 0.03 * (self.number - 1) as f32).min(1.3)
+    }
+
     /// ボスウェーブかどうか。
     /// ボスウェーブは時間制ではなく、敵を全滅させると次へ進める
     pub fn is_boss_wave(&self) -> bool {
@@ -248,5 +258,44 @@ fn despawn_intermission_screen(
 ) {
     for entity in &screens {
         commands.entity(entity).despawn();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scaling_grows_with_wave_number() {
+        let wave1 = WaveInfo::new(1);
+        let wave10 = WaveInfo::new(FINAL_WAVE);
+
+        // Wave 1 はすべて等倍
+        assert_eq!(wave1.enemy_hp_multiplier(), 1.0);
+        assert_eq!(wave1.enemy_damage_multiplier(), 1.0);
+        assert_eq!(wave1.enemy_speed_multiplier(), 1.0);
+
+        // Wave 10 では HP 2.35倍・攻撃力 1.9倍・速度 1.27倍
+        assert!((wave10.enemy_hp_multiplier() - 2.35).abs() < 1e-5);
+        assert!((wave10.enemy_damage_multiplier() - 1.9).abs() < 1e-5);
+        assert!((wave10.enemy_speed_multiplier() - 1.27).abs() < 1e-5);
+
+        // 出現間隔はウェーブが進むほど短くなり、下限を下回らない
+        assert!(wave10.spawn_interval_secs() < wave1.spawn_interval_secs());
+        assert!(wave10.spawn_interval_secs() >= 0.4);
+    }
+
+    #[test]
+    fn speed_multiplier_is_capped() {
+        // 想定外に大きいウェーブ番号でも速度は 1.3 倍で頭打ち
+        assert_eq!(WaveInfo::new(100).enemy_speed_multiplier(), 1.3);
+    }
+
+    #[test]
+    fn boss_waves_are_5_and_10() {
+        assert!(WaveInfo::new(MID_BOSS_WAVE).is_boss_wave());
+        assert!(WaveInfo::new(FINAL_WAVE).is_boss_wave());
+        assert!(!WaveInfo::new(4).is_boss_wave());
+        assert!(!WaveInfo::new(6).is_boss_wave());
     }
 }
