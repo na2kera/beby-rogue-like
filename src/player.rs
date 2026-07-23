@@ -11,7 +11,7 @@ use crate::{
 
 // プレイヤーの移動速度（ピクセル/秒）とサイズ
 pub const PLAYER_SPEED: f32 = 300.0;
-pub const PLAYER_SIZE: f32 = 48.0;
+pub const PLAYER_SIZE: f32 = 64.0;
 const PLAYER_MAX_HP: f32 = 100.0;
 
 /// 被弾後の無敵時間（秒）

@@ -131,9 +131,9 @@ fn spawn_boss_on_boss_wave(
     wave.boss_spawned = true;
 
     let (size, speed, contact_damage, max_hp) = if wave.number >= FINAL_WAVE {
-        (144.0, 70.0, 30.0, 1500.0)
+        (192.0, 70.0, 30.0, 1500.0)
     } else {
-        (108.0, 85.0, 20.0, 600.0)
+        (144.0, 85.0, 20.0, 600.0)
     };
 
     commands.spawn((
