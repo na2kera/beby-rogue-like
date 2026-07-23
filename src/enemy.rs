@@ -32,19 +32,19 @@ impl EnemyKind {
     pub fn stats(self) -> EnemyStats {
         match self {
             EnemyKind::Normal => EnemyStats {
-                size: 42.0,
+                size: 56.0,
                 speed: 150.0,
                 max_hp: 30.0,
                 contact_damage: 10.0,
             },
             EnemyKind::Fast => EnemyStats {
-                size: 33.0,
+                size: 44.0,
                 speed: 240.0,
                 max_hp: 15.0,
                 contact_damage: 8.0,
             },
             EnemyKind::Tank => EnemyStats {
-                size: 63.0,
+                size: 84.0,
                 speed: 90.0,
                 max_hp: 90.0,
                 contact_damage: 20.0,
