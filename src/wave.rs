@@ -5,6 +5,7 @@ use crate::assets::SpriteAssets;
 use crate::enemy::{Boss, Enemy};
 use crate::input::confirm_just_pressed;
 use crate::lang::{Language, UiFont};
+use crate::score::Score;
 use crate::weapon::Weapon;
 use crate::{ARENA_HEIGHT, GameState, Health, RunResult};
 
@@ -140,10 +141,10 @@ fn spawn_boss_on_boss_wave(
     }
     wave.boss_spawned = true;
 
-    let (size, speed, contact_damage, max_hp) = if wave.number >= FINAL_WAVE {
-        (192.0, 70.0, 30.0, 1500.0)
+    let (size, speed, contact_damage, max_hp, score) = if wave.number >= FINAL_WAVE {
+        (192.0, 70.0, 30.0, 1500.0, 500)
     } else {
-        (144.0, 85.0, 20.0, 600.0)
+        (144.0, 85.0, 20.0, 600.0, 200)
     };
 
     commands.spawn((
@@ -152,6 +153,7 @@ fn spawn_boss_on_boss_wave(
             size,
             speed,
             contact_damage,
+            score,
         },
         Health::new(max_hp),
         Sprite {
@@ -168,6 +170,7 @@ fn spawn_boss_on_boss_wave(
 fn check_boss_wave_cleared(
     mut commands: Commands,
     wave: Res<WaveInfo>,
+    score: Res<Score>,
     enemies: Query<(), With<Enemy>>,
     weapons: Query<&Weapon>,
     mut next_state: ResMut<NextState<GameState>>,
@@ -181,6 +184,7 @@ fn check_boss_wave_cleared(
         commands.insert_resource(RunResult {
             victory: true,
             wave_reached: wave.number,
+            score: score.0,
             weapons: weapons.iter().map(|w| (w.weapon_type, w.level)).collect(),
         });
         next_state.set(GameState::Result);

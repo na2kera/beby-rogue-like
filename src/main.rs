@@ -4,6 +4,7 @@ mod input;
 mod lang;
 mod pickup;
 mod player;
+mod score;
 mod screens;
 mod ui;
 mod wave;
@@ -41,6 +42,8 @@ pub enum GameState {
 pub struct RunResult {
     pub victory: bool,
     pub wave_reached: u32,
+    /// ラン終了時の累計スコア
+    pub score: u32,
     /// ラン終了時の所持武器（種類とレベル）
     pub weapons: Vec<(WeaponType, u8)>,
 }
@@ -99,6 +102,7 @@ fn main() {
             enemy::EnemyPlugin,
             weapon::WeaponPlugin,
             pickup::PickupPlugin,
+            score::ScorePlugin,
             wave::WavePlugin,
             ui::UiPlugin,
             screens::ScreensPlugin,
