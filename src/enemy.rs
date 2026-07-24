@@ -32,6 +32,8 @@ pub struct EnemyStats {
     pub speed: f32,
     pub max_hp: f32,
     pub contact_damage: f32,
+    /// 倒したときに得られるスコア
+    pub score: u32,
 }
 
 impl EnemyKind {
@@ -42,18 +44,21 @@ impl EnemyKind {
                 speed: 150.0,
                 max_hp: 30.0,
                 contact_damage: 10.0,
+                score: 10,
             },
             EnemyKind::Fast => EnemyStats {
                 size: 44.0,
                 speed: 240.0,
                 max_hp: 15.0,
                 contact_damage: 8.0,
+                score: 15,
             },
             EnemyKind::Tank => EnemyStats {
                 size: 84.0,
                 speed: 90.0,
                 max_hp: 90.0,
                 contact_damage: 20.0,
+                score: 30,
             },
         }
     }
@@ -74,6 +79,8 @@ pub struct Enemy {
     pub size: f32,
     pub speed: f32,
     pub contact_damage: f32,
+    /// 倒したときに得られるスコア
+    pub score: u32,
 }
 
 /// 最終ボスのマーカー（Enemy と併用する）
@@ -90,10 +97,12 @@ struct HealthBarFill {
     full_width: f32,
 }
 
-/// 敵が倒されたことを他のシステムに知らせるメッセージ（ドロップ処理が購読する）
+/// 敵が倒されたことを他のシステムに知らせるメッセージ（ドロップ処理とスコア加算が購読する）
 #[derive(Message)]
 pub struct EnemyDied {
     pub position: Vec2,
+    /// 倒した敵のスコア
+    pub score: u32,
 }
 
 /// 敵の出現タイミングを管理するリソース（ワールドに1つだけのグローバルデータ）
@@ -194,6 +203,7 @@ fn spawn_enemies(
             size: stats.size,
             speed: stats.speed * wave.enemy_speed_multiplier(),
             contact_damage: stats.contact_damage * wave.enemy_damage_multiplier(),
+            score: stats.score,
         },
         Health::new(stats.max_hp * wave.enemy_hp_multiplier()),
         Sprite {
@@ -309,15 +319,17 @@ fn despawn_all_enemies(mut commands: Commands, enemies: Query<Entity, With<Enemy
 }
 
 /// HPが0以下になった敵を消し、死亡メッセージを送る
+///（スコア加算とドロップ処理がこのメッセージを購読する）
 fn despawn_dead_enemies(
     mut commands: Commands,
     mut died: MessageWriter<EnemyDied>,
-    enemies: Query<(Entity, &Transform, &Health), With<Enemy>>,
+    enemies: Query<(Entity, &Transform, &Health, &Enemy)>,
 ) {
-    for (entity, transform, health) in &enemies {
+    for (entity, transform, health, enemy) in &enemies {
         if health.current <= 0.0 {
             died.write(EnemyDied {
                 position: transform.translation.truncate(),
+                score: enemy.score,
             });
             commands.entity(entity).despawn();
         }
