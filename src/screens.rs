@@ -167,6 +167,7 @@ fn spawn_result_screen(
         children![
             (Text::new(heading), text_font(48.0), TextColor(heading_color)),
             (Text::new(lang.reached_wave(result.wave_reached)), text_font(24.0)),
+            (Text::new(lang.score(result.score)), text_font(24.0)),
             (Text::new(weapons_line), text_font(20.0)),
             (Text::new(lang.press_return_title()), text_font(18.0)),
         ],
