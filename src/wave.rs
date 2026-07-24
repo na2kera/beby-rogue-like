@@ -2,7 +2,7 @@ use bevy::input::mouse::MouseButton;
 use bevy::prelude::*;
 
 use crate::assets::SpriteAssets;
-use crate::enemy::{Boss, Enemy};
+use crate::enemy::{Boss, Enemy, MovePattern, RangedAttacker};
 use crate::input::confirm_just_pressed;
 use crate::lang::{Language, UiFont};
 use crate::weapon::Weapon;
@@ -140,10 +140,25 @@ fn spawn_boss_on_boss_wave(
     }
     wave.boss_spawned = true;
 
-    let (size, speed, contact_damage, max_hp) = if wave.number >= FINAL_WAVE {
-        (192.0, 70.0, 30.0, 1500.0)
+    // 最終ボスは全周8方向弾、中ボスはプレイヤーを狙う3方向の扇状弾を撃つ
+    let (size, speed, contact_damage, max_hp, ranged) = if wave.number >= FINAL_WAVE {
+        let ranged = RangedAttacker {
+            timer: Timer::from_seconds(2.4, TimerMode::Repeating),
+            bullet_speed: 260.0,
+            bullet_damage: 12.0,
+            bullet_count: 8,
+            spread: std::f32::consts::TAU / 8.0,
+        };
+        (192.0, 70.0, 30.0, 1500.0, ranged)
     } else {
-        (144.0, 85.0, 20.0, 600.0)
+        let ranged = RangedAttacker {
+            timer: Timer::from_seconds(2.0, TimerMode::Repeating),
+            bullet_speed: 300.0,
+            bullet_damage: 10.0,
+            bullet_count: 3,
+            spread: 0.3,
+        };
+        (144.0, 85.0, 20.0, 600.0, ranged)
     };
 
     commands.spawn((
@@ -153,6 +168,8 @@ fn spawn_boss_on_boss_wave(
             speed,
             contact_damage,
         },
+        MovePattern::Chase,
+        ranged,
         Health::new(max_hp),
         Sprite {
             image: sprites.boss.clone(),
