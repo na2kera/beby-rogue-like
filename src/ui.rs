@@ -2,6 +2,7 @@ use bevy::prelude::*;
 
 use crate::lang::{Language, UiFont};
 use crate::player::Player;
+use crate::score::Score;
 use crate::wave::WaveInfo;
 use crate::weapon::Weapon;
 use crate::{GameState, Health};
@@ -22,6 +23,10 @@ struct WeaponText;
 #[derive(Component)]
 struct WaveText;
 
+/// スコア表示テキストのマーカーコンポーネント
+#[derive(Component)]
+struct ScoreText;
+
 pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
@@ -29,7 +34,12 @@ impl Plugin for UiPlugin {
         app.add_systems(OnEnter(GameState::Playing), spawn_hud)
             .add_systems(
                 Update,
-                (update_hp_text, update_weapon_text, update_wave_text)
+                (
+                    update_hp_text,
+                    update_weapon_text,
+                    update_wave_text,
+                    update_score_text,
+                )
                     .run_if(in_state(GameState::Playing)),
             )
             .add_systems(OnExit(GameState::Playing), despawn_hud);
@@ -79,7 +89,21 @@ fn spawn_hud(mut commands: Commands, font: Res<UiFont>) {
             justify_content: JustifyContent::Center,
             ..default()
         },
-        children![(WaveText, Text::new(""), text_font)],
+        children![(WaveText, Text::new(""), text_font.clone())],
+    ));
+
+    // 画面右上にスコア表示
+    commands.spawn((
+        Hud,
+        ScoreText,
+        Text::new(""),
+        text_font,
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(10.0),
+            right: Val::Px(10.0),
+            ..default()
+        },
     ));
 }
 
@@ -94,6 +118,14 @@ fn update_hp_text(
     mut text: Single<&mut Text, With<HpText>>,
 ) {
     text.0 = format!("HP: {:.0} / {:.0}", player.current.max(0.0), player.max);
+}
+
+fn update_score_text(
+    lang: Res<Language>,
+    score: Res<Score>,
+    mut text: Single<&mut Text, With<ScoreText>>,
+) {
+    text.0 = lang.score(score.0);
 }
 
 fn update_wave_text(wave: Res<WaveInfo>, mut text: Single<&mut Text, With<WaveText>>) {

@@ -5,6 +5,7 @@ use crate::assets::SpriteAssets;
 use crate::enemy::{Boss, Enemy, MovePattern, RangedAttacker};
 use crate::input::confirm_just_pressed;
 use crate::lang::{Language, UiFont};
+use crate::score::Score;
 use crate::weapon::Weapon;
 use crate::{ARENA_HEIGHT, GameState, Health, RunResult};
 
@@ -141,7 +142,7 @@ fn spawn_boss_on_boss_wave(
     wave.boss_spawned = true;
 
     // 最終ボスは全周8方向弾、中ボスはプレイヤーを狙う3方向の扇状弾を撃つ
-    let (size, speed, contact_damage, max_hp, ranged) = if wave.number >= FINAL_WAVE {
+    let (size, speed, contact_damage, max_hp, score, ranged) = if wave.number >= FINAL_WAVE {
         let ranged = RangedAttacker {
             timer: Timer::from_seconds(2.4, TimerMode::Repeating),
             bullet_speed: 260.0,
@@ -149,7 +150,7 @@ fn spawn_boss_on_boss_wave(
             bullet_count: 8,
             spread: std::f32::consts::TAU / 8.0,
         };
-        (192.0, 70.0, 30.0, 1500.0, ranged)
+        (192.0, 70.0, 30.0, 1500.0, 500, ranged)
     } else {
         let ranged = RangedAttacker {
             timer: Timer::from_seconds(2.0, TimerMode::Repeating),
@@ -158,7 +159,7 @@ fn spawn_boss_on_boss_wave(
             bullet_count: 3,
             spread: 0.3,
         };
-        (144.0, 85.0, 20.0, 600.0, ranged)
+        (144.0, 85.0, 20.0, 600.0, 200, ranged)
     };
 
     commands.spawn((
@@ -167,6 +168,7 @@ fn spawn_boss_on_boss_wave(
             size,
             speed,
             contact_damage,
+            score,
         },
         MovePattern::Chase,
         ranged,
@@ -185,6 +187,7 @@ fn spawn_boss_on_boss_wave(
 fn check_boss_wave_cleared(
     mut commands: Commands,
     wave: Res<WaveInfo>,
+    score: Res<Score>,
     enemies: Query<(), With<Enemy>>,
     weapons: Query<&Weapon>,
     mut next_state: ResMut<NextState<GameState>>,
@@ -198,6 +201,7 @@ fn check_boss_wave_cleared(
         commands.insert_resource(RunResult {
             victory: true,
             wave_reached: wave.number,
+            score: score.0,
             weapons: weapons.iter().map(|w| (w.weapon_type, w.level)).collect(),
         });
         next_state.set(GameState::Result);

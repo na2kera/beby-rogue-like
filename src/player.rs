@@ -2,6 +2,7 @@ use bevy::prelude::*;
 
 use crate::assets::{PLAYER_WALK_FRAME_COUNT, SpriteAssets};
 use crate::input::{GameInputSet, MoveInput};
+use crate::score::Score;
 use crate::wave::{WaveInfo, WavePhase};
 use crate::weapon::Weapon;
 use crate::{ARENA_HEIGHT, ARENA_WIDTH, GameState, Health, RunResult, WALL_THICKNESS};
@@ -137,6 +138,7 @@ fn check_player_death(
     mut commands: Commands,
     player: Single<&Health, With<Player>>,
     wave: Res<WaveInfo>,
+    score: Res<Score>,
     weapons: Query<&Weapon>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
@@ -144,6 +146,7 @@ fn check_player_death(
         commands.insert_resource(RunResult {
             victory: false,
             wave_reached: wave.number,
+            score: score.0,
             weapons: weapons.iter().map(|w| (w.weapon_type, w.level)).collect(),
         });
         next_state.set(GameState::Result);

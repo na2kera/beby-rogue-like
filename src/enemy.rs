@@ -29,6 +29,12 @@ const SHOOTER_PREFERRED_DISTANCE: f32 = 380.0;
 /// 距離維持の許容幅。この範囲内なら前進も後退もせず横移動する
 const KEEP_DISTANCE_BAND: f32 = 40.0;
 
+/// 敵の頭上に表示するHPバーの高さ
+const HEALTH_BAR_HEIGHT: f32 = 6.0;
+
+/// 敵スプライトの上端からHPバーまでの間隔
+const HEALTH_BAR_GAP: f32 = 8.0;
+
 /// 敵の種類
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum EnemyKind {
@@ -48,6 +54,8 @@ pub struct EnemyStats {
     pub speed: f32,
     pub max_hp: f32,
     pub contact_damage: f32,
+    /// 倒したときに得られるスコア
+    pub score: u32,
 }
 
 impl EnemyKind {
@@ -58,24 +66,28 @@ impl EnemyKind {
                 speed: 150.0,
                 max_hp: 30.0,
                 contact_damage: 10.0,
+                score: 10,
             },
             EnemyKind::Fast => EnemyStats {
                 size: 44.0,
                 speed: 240.0,
                 max_hp: 15.0,
                 contact_damage: 8.0,
+                score: 15,
             },
             EnemyKind::Tank => EnemyStats {
                 size: 84.0,
                 speed: 90.0,
                 max_hp: 90.0,
                 contact_damage: 20.0,
+                score: 30,
             },
             EnemyKind::Shooter => EnemyStats {
                 size: 48.0,
                 speed: 130.0,
                 max_hp: 20.0,
                 contact_damage: 6.0,
+                score: 20,
             },
         }
     }
@@ -139,16 +151,30 @@ pub struct Enemy {
     pub size: f32,
     pub speed: f32,
     pub contact_damage: f32,
+    /// 倒したときに得られるスコア
+    pub score: u32,
 }
 
 /// 最終ボスのマーカー（Enemy と併用する）
 #[derive(Component)]
 pub struct Boss;
 
-/// 敵が倒されたことを他のシステムに知らせるメッセージ（ドロップ処理が購読する）
+/// HPバーの残量部分（前景）に付くコンポーネント。
+/// 敵本体の子エンティティなので、敵と一緒に消える
+#[derive(Component)]
+struct HealthBarFill {
+    /// HPを参照する敵本体のエンティティ
+    owner: Entity,
+    /// HP満タン時のバーの幅
+    full_width: f32,
+}
+
+/// 敵が倒されたことを他のシステムに知らせるメッセージ（ドロップ処理とスコア加算が購読する）
 #[derive(Message)]
 pub struct EnemyDied {
     pub position: Vec2,
+    /// 倒した敵のスコア
+    pub score: u32,
 }
 
 /// 敵の出現タイミングを管理するリソース（ワールドに1つだけのグローバルデータ）
@@ -177,6 +203,13 @@ impl Plugin for EnemyPlugin {
                 )
                     .chain()
                     .run_if(in_state(WavePhase::Fighting)),
+            )
+            // HPバーはボス（OnEnter で出現）にも付けたいので、戦闘中に限らず Playing 全体で回す
+            .add_systems(
+                Update,
+                (attach_health_bars, update_health_bars)
+                    .chain()
+                    .run_if(in_state(GameState::Playing)),
             )
             // ウェーブ間は敵が一掃されるので、飛んでいる弾も一緒に消す
             .add_systems(OnEnter(WavePhase::Intermission), despawn_enemy_bullets)
@@ -280,6 +313,7 @@ fn spawn_enemies(
             size: stats.size,
             speed: stats.speed * wave.enemy_speed_multiplier(),
             contact_damage: stats.contact_damage * wave.enemy_damage_multiplier(),
+            score: stats.score,
         },
         pick_move_pattern(kind, &mut rng),
         Health::new(stats.max_hp * wave.enemy_hp_multiplier()),
@@ -458,6 +492,61 @@ fn bullet_hit_player(
     }
 }
 
+/// 出現した敵（ボス含む）の頭上にHPバーを子エンティティとして付ける
+fn attach_health_bars(mut commands: Commands, enemies: Query<(Entity, &Enemy), Added<Enemy>>) {
+    for (entity, enemy) in &enemies {
+        let width = enemy.size;
+        let offset_y = enemy.size / 2.0 + HEALTH_BAR_GAP;
+
+        commands.entity(entity).with_children(|parent| {
+            // 背景（減った分が見える暗い帯）
+            parent.spawn((
+                Sprite::from_color(
+                    Color::srgb(0.15, 0.15, 0.15),
+                    Vec2::new(width, HEALTH_BAR_HEIGHT),
+                ),
+                Transform::from_xyz(0.0, offset_y, 0.1),
+            ));
+            // 前景（残りHP。長さと色を update_health_bars が更新する）
+            parent.spawn((
+                HealthBarFill {
+                    owner: entity,
+                    full_width: width,
+                },
+                Sprite::from_color(
+                    Color::srgb(0.25, 0.85, 0.30),
+                    Vec2::new(width, HEALTH_BAR_HEIGHT),
+                ),
+                Transform::from_xyz(0.0, offset_y, 0.2),
+            ));
+        });
+    }
+}
+
+/// HPバーの長さと色を残りHPに合わせて更新する。
+/// バーは左端を基準に縮むよう、幅に応じて位置もずらす
+fn update_health_bars(
+    healths: Query<&Health, With<Enemy>>,
+    mut bars: Query<(&HealthBarFill, &mut Sprite, &mut Transform)>,
+) {
+    for (bar, mut sprite, mut transform) in &mut bars {
+        let Ok(health) = healths.get(bar.owner) else {
+            continue;
+        };
+        let ratio = (health.current / health.max).clamp(0.0, 1.0);
+
+        sprite.custom_size = Some(Vec2::new(bar.full_width * ratio, HEALTH_BAR_HEIGHT));
+        transform.translation.x = -bar.full_width * (1.0 - ratio) / 2.0;
+        sprite.color = if ratio > 0.5 {
+            Color::srgb(0.25, 0.85, 0.30) // 緑
+        } else if ratio > 0.25 {
+            Color::srgb(0.95, 0.80, 0.20) // 黄
+        } else {
+            Color::srgb(0.90, 0.25, 0.20) // 赤
+        };
+    }
+}
+
 /// ラン終了時に残っている敵（ボス含む）をすべて消す
 fn despawn_all_enemies(mut commands: Commands, enemies: Query<Entity, With<Enemy>>) {
     for entity in &enemies {
@@ -473,15 +562,17 @@ fn despawn_enemy_bullets(mut commands: Commands, bullets: Query<Entity, With<Ene
 }
 
 /// HPが0以下になった敵を消し、死亡メッセージを送る
+///（スコア加算とドロップ処理がこのメッセージを購読する）
 fn despawn_dead_enemies(
     mut commands: Commands,
     mut died: MessageWriter<EnemyDied>,
-    enemies: Query<(Entity, &Transform, &Health), With<Enemy>>,
+    enemies: Query<(Entity, &Transform, &Health, &Enemy)>,
 ) {
-    for (entity, transform, health) in &enemies {
+    for (entity, transform, health, enemy) in &enemies {
         if health.current <= 0.0 {
             died.write(EnemyDied {
                 position: transform.translation.truncate(),
+                score: enemy.score,
             });
             commands.entity(entity).despawn();
         }

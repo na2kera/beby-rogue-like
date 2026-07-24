@@ -66,6 +66,13 @@ impl Language {
         }
     }
 
+    pub fn score(self, points: u32) -> String {
+        match self {
+            Language::English => format!("Score: {points}"),
+            Language::Japanese => format!("スコア: {points}"),
+        }
+    }
+
     pub fn reached_wave(self, number: u32) -> String {
         match self {
             Language::English => format!("Reached Wave {number}"),
