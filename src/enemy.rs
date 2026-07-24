@@ -9,6 +9,12 @@ use crate::{ARENA_HEIGHT, ARENA_WIDTH, GameState, Health};
 /// 壁からどれだけ内側に出現するか
 const SPAWN_MARGIN: f32 = 50.0;
 
+/// 敵の頭上に表示するHPバーの高さ
+const HEALTH_BAR_HEIGHT: f32 = 6.0;
+
+/// 敵スプライトの上端からHPバーまでの間隔
+const HEALTH_BAR_GAP: f32 = 8.0;
+
 /// 敵の種類
 #[derive(Clone, Copy)]
 pub enum EnemyKind {
@@ -74,6 +80,16 @@ pub struct Enemy {
 #[derive(Component)]
 pub struct Boss;
 
+/// HPバーの残量部分（前景）に付くコンポーネント。
+/// 敵本体の子エンティティなので、敵と一緒に消える
+#[derive(Component)]
+struct HealthBarFill {
+    /// HPを参照する敵本体のエンティティ
+    owner: Entity,
+    /// HP満タン時のバーの幅
+    full_width: f32,
+}
+
 /// 敵が倒されたことを他のシステムに知らせるメッセージ（ドロップ処理が購読する）
 #[derive(Message)]
 pub struct EnemyDied {
@@ -98,6 +114,13 @@ impl Plugin for EnemyPlugin {
                 (spawn_enemies, chase_player, hit_player, despawn_dead_enemies)
                     .chain()
                     .run_if(in_state(WavePhase::Fighting)),
+            )
+            // HPバーはボス（OnEnter で出現）にも付けたいので、戦闘中に限らず Playing 全体で回す
+            .add_systems(
+                Update,
+                (attach_health_bars, update_health_bars)
+                    .chain()
+                    .run_if(in_state(GameState::Playing)),
             )
             .add_systems(OnExit(GameState::Playing), despawn_all_enemies);
     }
@@ -220,6 +243,61 @@ fn hit_player(
     if let Some(damage) = touching_damage {
         health.current -= damage;
         player.invincible_timer.reset();
+    }
+}
+
+/// 出現した敵（ボス含む）の頭上にHPバーを子エンティティとして付ける
+fn attach_health_bars(mut commands: Commands, enemies: Query<(Entity, &Enemy), Added<Enemy>>) {
+    for (entity, enemy) in &enemies {
+        let width = enemy.size;
+        let offset_y = enemy.size / 2.0 + HEALTH_BAR_GAP;
+
+        commands.entity(entity).with_children(|parent| {
+            // 背景（減った分が見える暗い帯）
+            parent.spawn((
+                Sprite::from_color(
+                    Color::srgb(0.15, 0.15, 0.15),
+                    Vec2::new(width, HEALTH_BAR_HEIGHT),
+                ),
+                Transform::from_xyz(0.0, offset_y, 0.1),
+            ));
+            // 前景（残りHP。長さと色を update_health_bars が更新する）
+            parent.spawn((
+                HealthBarFill {
+                    owner: entity,
+                    full_width: width,
+                },
+                Sprite::from_color(
+                    Color::srgb(0.25, 0.85, 0.30),
+                    Vec2::new(width, HEALTH_BAR_HEIGHT),
+                ),
+                Transform::from_xyz(0.0, offset_y, 0.2),
+            ));
+        });
+    }
+}
+
+/// HPバーの長さと色を残りHPに合わせて更新する。
+/// バーは左端を基準に縮むよう、幅に応じて位置もずらす
+fn update_health_bars(
+    healths: Query<&Health, With<Enemy>>,
+    mut bars: Query<(&HealthBarFill, &mut Sprite, &mut Transform)>,
+) {
+    for (bar, mut sprite, mut transform) in &mut bars {
+        let Ok(health) = healths.get(bar.owner) else {
+            continue;
+        };
+        let ratio = (health.current / health.max).clamp(0.0, 1.0);
+
+        sprite.custom_size = Some(Vec2::new(bar.full_width * ratio, HEALTH_BAR_HEIGHT));
+        transform.translation.x = -bar.full_width * (1.0 - ratio) / 2.0;
+        sprite.color = if ratio > 0.5 {
+            Color::srgb(0.25, 0.85, 0.30) // 緑
+        } else if ratio > 0.25 {
+            Color::srgb(0.95, 0.80, 0.20) // 黄
+        } else {
+            Color::srgb(0.90, 0.25, 0.20) // 赤
+        };
     }
 }
 
